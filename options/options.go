@@ -83,3 +83,10 @@ func GetOptions(opts ...Option) *Options {
 	}
 	return options
 }
+func CheckOptions(opt *Options) error {
+
+	if opt.EncryptMethod != nil {
+		return opt.EncryptMethod.Init(opt.Key, opt.Iv)
+	}
+	return nil
+}

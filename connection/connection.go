@@ -3,7 +3,6 @@ package connection
 import (
 	"crypto/tls"
 	"errors"
-	"fmt"
 	"github.com/1uLang/libnet/options"
 	"github.com/1uLang/libnet/utils"
 	"github.com/1uLang/libnet/workers"
@@ -167,7 +166,6 @@ func (this *Connection) SetupTLS() {
 			buf := bytePool.Get()
 			for {
 				n, err := tlsConn.Read(buf)
-				fmt.Println("====== ", conn.RemoteAddr(), n, err, ev)
 				if err != nil && strings.Contains(err.Error(), "timeout") {
 					bytePool.Put(buf)
 					// 处理读取超时

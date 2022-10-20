@@ -2,6 +2,7 @@ package libnet
 
 import (
 	"crypto/tls"
+	"fmt"
 	"github.com/1uLang/libnet/connection"
 	options2 "github.com/1uLang/libnet/options"
 	"github.com/1uLang/libnet/utils"
@@ -19,12 +20,16 @@ type Serve struct {
 func NewServe(address string, handler connection.Handler, opts ...options2.Option) (*Serve, error) {
 	options := options2.GetOptions(opts...)
 	setLimit()
+	if err := options2.CheckOptions(options); err != nil {
+		return nil, fmt.Errorf("set options error : %s", err)
+	}
 	return &Serve{
 		options: options,
 		address: address,
 		handler: handler,
 	}, nil
 }
+
 func (s *Serve) RunTCP() error {
 	utils.Log().Info("[Serve] Run ", s.address, "Tcp Server")
 	ln, err := net.Listen("tcp", s.address)
