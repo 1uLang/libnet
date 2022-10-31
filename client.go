@@ -72,3 +72,6 @@ func (c *Client) DialTLS(cfg *tls.Config) error {
 	c.conn.SetupTLS()
 	return nil
 }
+func (c *Client) Close() error {
+	return c.conn.Close("")
+}

@@ -72,7 +72,7 @@ func (this *Connection) SetupUDP() {
 				}
 			}
 		}
-		// close connection
+		// Close connection
 		if this.handler != nil && this.handler.OnClose != nil {
 			this.handler.OnClose(this, nil)
 		}
@@ -107,7 +107,7 @@ func (this *Connection) SetupTCP() {
 				if err != nil && strings.Contains(err.Error(), "timeout") {
 					bytePool.Put(buf)
 					// 处理读取超时
-					_ = this.close("timeout")
+					_ = this.Close("timeout")
 					return
 				}
 				if n > 0 {
@@ -134,7 +134,7 @@ func (this *Connection) SetupTCP() {
 			bytePool.Put(buf)
 			// 处理连接断开事件
 			if ev&netpoll.EventReadHup != 0 {
-				_ = this.close("client hup")
+				_ = this.Close("client hup")
 				return
 			}
 		})
@@ -169,7 +169,7 @@ func (this *Connection) SetupTLS() {
 				if err != nil && strings.Contains(err.Error(), "timeout") {
 					bytePool.Put(buf)
 					// 处理读取超时
-					_ = this.close("timeout")
+					_ = this.Close("timeout")
 					return
 				}
 				if n > 0 {
@@ -196,7 +196,7 @@ func (this *Connection) SetupTLS() {
 			bytePool.Put(buf)
 			// 处理连接断开事件
 			if ev&netpoll.EventReadHup != 0 {
-				_ = this.close("client hup")
+				_ = this.Close("client hup")
 				return
 			}
 
@@ -208,7 +208,7 @@ func (this *Connection) SetupTLS() {
 	}
 }
 
-func (this *Connection) close(reason string) error {
+func (this *Connection) Close(reason string) error {
 	defer func() {
 		this.worker.Close()
 	}()
