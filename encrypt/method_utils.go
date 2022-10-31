@@ -23,7 +23,7 @@ var methods = map[string]reflect.Type{
 func Init(key string, iv string) {
 	encryptKey, encryptIv = key, iv
 }
-func NewMethodInstance(method string, key string, iv string) (MethodInterface, error) {
+func NewMethod(method string) (MethodInterface, error) {
 	valueType, ok := methods[method]
 	if !ok {
 		return nil, errors.New("method '" + method + "' not found")
@@ -32,7 +32,14 @@ func NewMethodInstance(method string, key string, iv string) (MethodInterface, e
 	if !ok {
 		return nil, errors.New("method '" + method + "' must implement MethodInterface")
 	}
-	err := instance.Init([]byte(key), []byte(iv))
+	return instance, nil
+}
+func NewMethodInstance(method string, key string, iv string) (MethodInterface, error) {
+	instance, err := NewMethod(method)
+	if err != nil {
+		return nil, err
+	}
+	err = instance.Init([]byte(key), []byte(iv))
 	return instance, err
 }
 func GetMethodInstance(id uint8) (MethodInterface, error) {
