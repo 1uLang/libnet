@@ -36,6 +36,7 @@ func (s *Serve) RunTCP() error {
 	if err != nil {
 		return err
 	}
+	defer ln.Close()
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
