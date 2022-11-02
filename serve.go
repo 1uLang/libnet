@@ -67,10 +67,7 @@ func (s *Serve) RunUDP() error {
 	}
 
 	c := connection.NewConnection(conn, s.handler, s.options)
-	// 设置超时
-	if s.options != nil && s.options.Timeout != 0 {
-		conn.SetReadDeadline(time.Now().Add(s.options.Timeout))
-	}
+
 	c.SetupUDP()
 	return nil
 }
