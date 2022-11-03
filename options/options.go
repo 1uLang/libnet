@@ -9,6 +9,8 @@ import (
 type Options struct {
 	EncryptMethod encrypt.MethodInterface // 数据加解密算法
 	Timeout       time.Duration           // 连接读写超时时间
+	PrivateKey    []byte                  // 加解密算法私钥
+	PublicKey     []byte                  // 加解密算法公钥
 }
 
 type Option interface {
@@ -43,6 +45,26 @@ func WithTimeout(timeout time.Duration) Option {
 			panic("timeoutTicker must greater than 0")
 		}
 		o.Timeout = timeout
+	})
+}
+
+// WithPrivateKey 设置加解密私钥
+func WithPrivateKey(privateKey []byte) Option {
+	return newFuncServerOption(func(o *Options) {
+		if len(privateKey) == 0 {
+			panic("privateKey not be nil")
+		}
+		o.PrivateKey = privateKey
+	})
+}
+
+// WithPublicKey 设置加解密公钥
+func WithPublicKey(publicKey []byte) Option {
+	return newFuncServerOption(func(o *Options) {
+		if len(publicKey) < 0 {
+			panic("publicKey not be nil")
+		}
+		o.PublicKey = publicKey
 	})
 }
 
