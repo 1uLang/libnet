@@ -2,36 +2,47 @@ package libnet
 
 import (
 	"crypto/tls"
-	"fmt"
-	"github.com/1uLang/libnet/connection"
-	options2 "github.com/1uLang/libnet/options"
-	"github.com/1uLang/libnet/utils"
+	"github.com/1uLang/libnet/options"
+	log "github.com/sirupsen/logrus"
 	"net"
 	"syscall"
-	"time"
 )
 
 type Serve struct {
-	options *options2.Options // 服务参数
 	address string
-	handler connection.Handler
+	// 服务参数
+	options *options.Options
+	// 处理消息回调接口
+	handler Handler
 }
 
-func NewServe(address string, handler connection.Handler, opts ...options2.Option) (*Serve, error) {
-	options := options2.GetOptions(opts...)
+func NewServe(address string, handler Handler, opts ...options.Option) *Serve {
 	setLimit()
-	if err := options2.CheckOptions(options); err != nil {
-		return nil, fmt.Errorf("set options error : %s", err)
-	}
 	return &Serve{
-		options: options,
+		options: options.GetOptions(opts...),
 		address: address,
 		handler: handler,
-	}, nil
+	}
+}
+
+func (s *Serve) RunUDP() error {
+	log.Info("[Serve] Run ", s.address, " udp server")
+	udpAddr, err := net.ResolveUDPAddr("udp", s.address)
+	if err != nil {
+		return err
+	}
+	conn, err := net.ListenUDP("udp", udpAddr)
+
+	if err != nil {
+		return err
+	}
+
+	newConnection(conn, s.handler, s.options, true, false).setupUDP()
+	return nil
 }
 
 func (s *Serve) RunTCP() error {
-	utils.Log().Info("[Serve] Run ", s.address, "Tcp Server")
+	log.Info("[Serve] Run ", s.address, " tcp server")
 	ln, err := net.Listen("tcp", s.address)
 	if err != nil {
 		return err
@@ -40,40 +51,15 @@ func (s *Serve) RunTCP() error {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			utils.Log().Error("new tcp client connection error ", err)
+			log.Error("new tcp client connection error ", err)
 		}
-		// 设置超时
-		if s.options != nil && s.options.Timeout != 0 {
-			conn.SetReadDeadline(time.Now().Add(s.options.Timeout))
-		}
-		c := connection.NewConnection(conn, s.handler, s.options)
-		// 执行启动回调函数
-		if s.handler != nil && s.handler.OnConnect != nil {
-			s.handler.OnConnect(c)
-		}
-		c.SetupTCP()
+		newConnection(conn, s.handler, s.options, false, false).setupTCP()
 	}
 }
-func (s *Serve) RunUDP() error {
-	utils.Log().Info("[Serve] Run ", s.address, "Udp Server")
-	udpAddr, err := net.ResolveUDPAddr("udp", s.address)
-	if err != nil {
-		return err
-	}
-	conn, err := net.ListenUDP("udp", udpAddr)
-	defer conn.Close()
-	if err != nil {
-		return err
-	}
 
-	c := connection.NewConnection(conn, s.handler, s.options)
-
-	c.SetupUDP()
-	return nil
-}
 func (s *Serve) RunTLS(cfg *tls.Config) error {
 
-	utils.Log().Info("[Serve] Run ", s.address, "TLS Server")
+	log.Info("[Serve] Run ", s.address, " tls server")
 
 	ln, err := net.Listen("tcp", s.address)
 	if err != nil {
@@ -85,18 +71,9 @@ func (s *Serve) RunTLS(cfg *tls.Config) error {
 	for {
 		conn, err := tlsListener.Accept()
 		if err != nil {
-			utils.Log().Error("new tcp client connection error ", err)
+			log.Error("new tls client connection error ", err)
 		}
-		// 设置超时
-		if s.options != nil && s.options.Timeout != 0 {
-			conn.SetReadDeadline(time.Now().Add(s.options.Timeout))
-		}
-		c := connection.NewConnection(conn.(*tls.Conn), s.handler, s.options)
-		// 执行启动回调函数
-		if s.handler != nil && s.handler.OnConnect != nil {
-			s.handler.OnConnect(c)
-		}
-		c.SetupTLS()
+		newConnection(conn.(*tls.Conn), s.handler, s.options, false, false).setupTLS()
 	}
 }
 func setLimit() {
@@ -108,5 +85,4 @@ func setLimit() {
 	if err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &rLimit); err != nil {
 		panic(err)
 	}
-
 }

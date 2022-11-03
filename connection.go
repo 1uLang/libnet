@@ -1,12 +1,15 @@
-package connection
+package libnet
 
 import (
 	"crypto/tls"
 	"errors"
+	"github.com/1uLang/libnet/message"
 	"github.com/1uLang/libnet/options"
 	"github.com/1uLang/libnet/utils"
+	"github.com/1uLang/libnet/utils/maps"
 	"github.com/1uLang/libnet/workers"
 	"github.com/mailru/easygo/netpoll"
+	log "github.com/sirupsen/logrus"
 	"net"
 	"strings"
 	"sync"
@@ -17,53 +20,76 @@ import (
 var (
 	poller, _        = netpoll.New(nil)
 	bytePool         = utils.NewBytePool(10_000, 65536)
-	countConnections int64
+	connId           = int64(0)
+	countConnections = int64(0)
+	connectionMaps   = map[int64]*Connection{}
+	sharedLocker     = sync.Mutex{}
 )
 
 type Connection struct {
-	worker     *workers.Worker
-	desc       *netpoll.Desc
 	conn       net.Conn
-	handler    Handler
+	desc       *netpoll.Desc
+	worker     *workers.Worker
+	buffer     *message.Buffer
 	options    *options.Options
+	isUdp      bool
 	isClosed   bool
 	remoteAddr string
-	locker     sync.Mutex
+
+	isClient bool
+	connId   int64
+	locker   sync.Mutex
+	context  maps.Map
+	handler  Handler
 }
 
-func NewConnection(rawConn net.Conn, handler Handler, options *options.Options) *Connection {
+func newConnection(rawConn net.Conn, handler Handler, opts *options.Options, isUdp, isClient bool) *Connection {
+	conn := &Connection{
+		isUdp:    isUdp,
+		isClient: isClient,
+		conn:     rawConn,
+		options:  opts,
+		handler:  handler,
+		worker:   workers.Get(),
+		context:  maps.Map{},
+	}
 
 	atomic.AddInt64(&countConnections, 1)
-
-	return &Connection{
-		worker:  workers.NewWorker(""),
-		conn:    rawConn,
-		handler: handler,
-		options: options,
+	sharedLocker.Lock()
+	connId++
+	conn.connId = connId
+	connectionMaps[connId] = conn
+	sharedLocker.Unlock()
+	// 执行启动回调函数
+	if !isUdp && conn.handler != nil && conn.handler.OnConnect != nil {
+		conn.handler.OnConnect(conn)
 	}
+	return conn
 }
 
-func (this *Connection) SetupUDP() {
+// UDP 建立
+func (this *Connection) setupUDP() {
 	// 读取数据
-	var buf = make([]byte, 1024)
+	buf := bytePool.Get()
+	defer bytePool.Put(buf)
 	for {
 		n, addr, err := this.conn.(*net.UDPConn).ReadFromUDP(buf)
 		if err != nil {
-			utils.Log().Error("[CONNECTION] read from error ", err)
+			log.Error("[CONNECTION] read from error ", err)
+			continue
 		} else {
-			this.locker.Lock()
 			this.remoteAddr = addr.String()
-			this.locker.Unlock()
 			if this.handler != nil && this.handler.OnConnect != nil {
 				this.handler.OnConnect(this)
 			}
 		}
 		if n > 0 {
-			if this.handler != nil && this.handler.OnMessage != nil {
+			// udp client 不存在接受消息
+			if !this.isClient && this.handler != nil && this.handler.OnMessage != nil {
 				if this.options != nil && this.options.EncryptMethod != nil {
 					decode, err := this.options.EncryptMethod.Decrypt(buf[:n])
 					if err != nil {
-						this.fail(err)
+						this.fail(errors.New("encryptMethod decrypt bytes fail:" + err.Error()))
 					} else {
 						this.handler.OnMessage(this, decode)
 					}
@@ -74,16 +100,19 @@ func (this *Connection) SetupUDP() {
 		}
 		// Close connection
 		if this.handler != nil && this.handler.OnClose != nil {
-			this.handler.OnClose(this, nil)
+			this.handler.OnClose(this, "")
 		}
 	}
+
 }
 
-func (this *Connection) SetupTCP() {
-
-	this.locker.Lock()
+// TCP 建立
+func (this *Connection) setupTCP() {
+	// 设置超时
+	if this.options != nil && this.options.Timeout != 0 {
+		this.conn.SetReadDeadline(time.Now().Add(this.options.Timeout))
+	}
 	this.remoteAddr = this.conn.RemoteAddr().String()
-	this.locker.Unlock()
 	// conn
 	desc, err := netpoll.Handle(this.conn, netpoll.EventRead|netpoll.EventEdgeTriggered)
 	if err != nil {
@@ -115,16 +144,24 @@ func (this *Connection) SetupTCP() {
 					if this.options != nil && this.options.Timeout != 0 {
 						this.conn.SetReadDeadline(time.Now().Add(this.options.Timeout))
 					}
-					if this.handler != nil && this.handler.OnMessage != nil {
+					if this.buffer != nil || this.handler != nil && this.handler.OnMessage != nil {
 						if this.options != nil && this.options.EncryptMethod != nil {
 							decode, err := this.options.EncryptMethod.Decrypt(buf[:n])
 							if err != nil {
 								this.fail(err)
 							} else {
-								this.handler.OnMessage(this, decode)
+								if this.buffer != nil {
+									this.buffer.Write(decode)
+								} else {
+									this.handler.OnMessage(this, decode)
+								}
 							}
 						} else {
-							this.handler.OnMessage(this, buf[:n])
+							if this.buffer != nil {
+								this.buffer.Write(buf[:n])
+							} else {
+								this.handler.OnMessage(this, buf[:n])
+							}
 						}
 					}
 				} else {
@@ -144,11 +181,15 @@ func (this *Connection) SetupTCP() {
 		return
 	}
 }
-func (this *Connection) SetupTLS() {
 
-	this.locker.Lock()
+// TLS 建立
+func (this *Connection) setupTLS() {
+	// 设置超时
+	if this.options != nil && this.options.Timeout != 0 {
+		this.conn.SetReadDeadline(time.Now().Add(this.options.Timeout))
+	}
+
 	this.remoteAddr = this.conn.RemoteAddr().String()
-	this.locker.Unlock()
 
 	tlsConn, _ := this.conn.(*tls.Conn)
 	conn, _ := tlsConn.NetConn().(*net.TCPConn)
@@ -177,16 +218,24 @@ func (this *Connection) SetupTLS() {
 					if this.options != nil && this.options.Timeout != 0 {
 						this.conn.SetReadDeadline(time.Now().Add(this.options.Timeout))
 					}
-					if this.handler != nil && this.handler.OnMessage != nil {
+					if this.buffer != nil || this.handler != nil && this.handler.OnMessage != nil {
 						if this.options != nil && this.options.EncryptMethod != nil {
 							decode, err := this.options.EncryptMethod.Decrypt(buf[:n])
 							if err != nil {
 								this.fail(err)
 							} else {
-								this.handler.OnMessage(this, decode)
+								if this.buffer != nil {
+									this.buffer.Write(decode)
+								} else {
+									this.handler.OnMessage(this, decode)
+								}
 							}
 						} else {
-							this.handler.OnMessage(this, buf[:n])
+							if this.buffer != nil {
+								this.buffer.Write(buf[:n])
+							} else {
+								this.handler.OnMessage(this, buf[:n])
+							}
 						}
 					}
 				} else {
@@ -199,7 +248,6 @@ func (this *Connection) SetupTLS() {
 				_ = this.Close("client hup")
 				return
 			}
-
 		})
 	})
 	if err != nil {
@@ -208,6 +256,12 @@ func (this *Connection) SetupTLS() {
 	}
 }
 
+// 异常
+func (this *Connection) fail(err error) {
+	log.Fatal(err)
+}
+
+// Close 主动断开连接
 func (this *Connection) Close(reason string) error {
 	defer func() {
 		this.worker.Close()
@@ -216,7 +270,7 @@ func (this *Connection) Close(reason string) error {
 	this.locker.Lock()
 	if !this.isClosed {
 		if this.handler != nil && this.handler.OnClose != nil {
-			this.handler.OnClose(this, errors.New(reason))
+			this.handler.OnClose(this, reason)
 		}
 		this.isClosed = true
 		atomic.AddInt64(&countConnections, -1)
@@ -234,8 +288,11 @@ func (this *Connection) Close(reason string) error {
 	return nil
 }
 
+// Write 下发消息
 func (this *Connection) Write(bytes []byte) (n int, err error) {
-
+	if this.isClosed {
+		return 0, errors.New("connection is close")
+	}
 	if this.options != nil && this.options.EncryptMethod != nil {
 		bytes, err := this.options.EncryptMethod.Encrypt(bytes)
 		if err != nil {
@@ -247,14 +304,21 @@ func (this *Connection) Write(bytes []byte) (n int, err error) {
 	}
 }
 
-// 失败提示—
-func (this *Connection) fail(err error) {
-	utils.Log().Error("[CONNECTION] ", err)
+// SetBuffer 设置接受消息监听器[注意当设置监听器之后 handler OnMessage将失效]
+func (this *Connection) SetBuffer(buffer *message.Buffer) error {
+	if this.isClosed {
+		return errors.New("the connection is close")
+	}
+	// udp client 不存在接受消息 股不存在设置接受消息监听器
+	if this.isUdp && this.isClient {
+		return errors.New("udp client is not to be set ")
+	}
+	this.buffer = buffer
+	return nil
 }
 
+// RemoteAddr 远端地址
 func (this *Connection) RemoteAddr() string {
-	this.locker.Lock()
-	defer this.locker.Unlock()
 	if this.remoteAddr == "" {
 		return this.conn.RemoteAddr().String()
 	}

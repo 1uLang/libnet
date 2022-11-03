@@ -4,7 +4,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"github.com/1uLang/libnet"
-	"github.com/1uLang/libnet/example"
 	"github.com/1uLang/libnet/options"
 	"io/ioutil"
 	"log"
@@ -12,15 +11,12 @@ import (
 )
 
 func main() {
-	svr, err := libnet.NewServe(":2439", new(example.Handle),
+	svr := libnet.NewServe(":2439", new(Handle),
 		//options.WithEncryptMethod(new(encrypt.AES256CFBMethod)),
 		//options.WithEncryptMethodPublicKey([]byte(encrypt.MagicKey)),
 		//options.WithEncryptMethodPrivateKey([]byte(encrypt.MagicKey[:16])),
 		options.WithTimeout(5*time.Second),
 	)
-	if err != nil {
-		panic(err)
-	}
 	caCertFile, err := ioutil.ReadFile("/data/libnet/certs/ca.crt")
 	if err != nil {
 		log.Fatalf("error reading CA certificate: %v", err)

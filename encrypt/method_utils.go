@@ -20,10 +20,7 @@ var methods = map[string]reflect.Type{
 	"gm-sm4-cbc":  reflect.TypeOf(new(GMSM4CBCMethod)).Elem(),
 }
 
-func Init(key string, iv string) {
-	encryptKey, encryptIv = key, iv
-}
-func NewMethod(method string) (MethodInterface, error) {
+func NewMethodInstance(method string, key string, iv string) (MethodInterface, error) {
 	valueType, ok := methods[method]
 	if !ok {
 		return nil, errors.New("method '" + method + "' not found")
@@ -32,14 +29,7 @@ func NewMethod(method string) (MethodInterface, error) {
 	if !ok {
 		return nil, errors.New("method '" + method + "' must implement MethodInterface")
 	}
-	return instance, nil
-}
-func NewMethodInstance(method string, key string, iv string) (MethodInterface, error) {
-	instance, err := NewMethod(method)
-	if err != nil {
-		return nil, err
-	}
-	err = instance.Init([]byte(key), []byte(iv))
+	err := instance.Init([]byte(key), []byte(iv))
 	return instance, err
 }
 func GetMethodInstance(id uint8) (MethodInterface, error) {

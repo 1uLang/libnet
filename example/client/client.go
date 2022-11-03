@@ -18,9 +18,9 @@ var (
 	port        = flag.String("port", "2439", "server port")
 	protocol    = flag.String("proto", "tcp", "server type tcp / udp")
 	connections = flag.Int("conn", 1, "number of tcp connections")
-	caCrt       = flag.String("ca", "./certs/ca.crt", "tls ca cert")
-	crt         = flag.String("crt", "./certs/client.crt", "tls client cert file")
-	key         = flag.String("key", "./certs/client.key", "tls client key file")
+	caCrt       = flag.String("ca", "/data/libnet/certs/ca.crt", "tls ca cert")
+	crt         = flag.String("crt", "/data/libnet/certs/client.crt", "tls client cert file")
+	key         = flag.String("key", "/data/libnet/certs/client.key", "tls client key file")
 	encrypt     = flag.String("encrypt", "", "set send or recv buffer encrypt method")
 )
 
