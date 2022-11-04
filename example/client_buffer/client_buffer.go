@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	encrypt2 "github.com/1uLang/libnet/encrypt"
+	message2 "github.com/1uLang/libnet/example/message"
 	"github.com/1uLang/libnet/message"
 	"io/ioutil"
 	"log"
@@ -34,10 +35,10 @@ func main() {
 	var enc encrypt2.MethodInterface
 	var err error
 	var conns []net.Conn
-	var buffer = message.NewBuffer()
-	var msg = message.Message{}
-	buffer.OnMessage(func(msg *message.Message) {
-		fmt.Println(msg.Length, string(msg.Data))
+	var buffer = message.NewBuffer(message2.CheckHeader)
+	var msg = message2.Message{}
+	buffer.OnMessage(func(msg message.MessageI) {
+		fmt.Println("recv msg : ", string(msg.GetData()))
 	})
 	if *encrypt != "" {
 		enc, err = encrypt2.NewMethodInstance(*encrypt, encrypt2.MagicKey, encrypt2.MagicKey[:16])
@@ -134,7 +135,6 @@ func main() {
 				} else {
 					recv = buf[:n]
 				}
-
 				buffer.Write(recv)
 			}
 		}

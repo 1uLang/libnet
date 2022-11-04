@@ -3,17 +3,19 @@ package main
 import (
 	"fmt"
 	"github.com/1uLang/libnet"
+	message2 "github.com/1uLang/libnet/example/message"
 	"github.com/1uLang/libnet/message"
 )
 
 type Handle struct{}
 type conn struct {
-	c *libnet.Connection
+	c      *libnet.Connection
+	buffer *message.Buffer
 }
 
-func (c *conn) onMessage(msg *message.Message) {
-	fmt.Println("recv msg : ", *msg)
-	msg.Data = []byte("recv msg")
+func (c *conn) onMessage(msg message.MessageI) {
+	fmt.Println("recv msg : ", string(msg.GetData()))
+	msg.SetData([]byte("recv msg"))
 	n, err := c.c.Write(msg.Marshal())
 	fmt.Println("send msg ", n, err)
 }
@@ -21,7 +23,7 @@ func (c *conn) onMessage(msg *message.Message) {
 // OnConnect 当TCP长连接建立成功是回调
 func (Handle) OnConnect(c *libnet.Connection) {
 	fmt.Println("new connection : ", c.RemoteAddr())
-	buffer := message.NewBuffer()
+	buffer := message.NewBuffer(message2.CheckHeader)
 	buffer.OnMessage((&conn{c: c}).onMessage)
 	c.SetBuffer(buffer)
 }
