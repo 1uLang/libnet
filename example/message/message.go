@@ -110,11 +110,6 @@ func (this *Message) GetLength() uint32 {
 	return this.Length
 }
 
-// GetData 获取消息体
-func (this *Message) GetData() []byte {
-	return this.Data
-}
-
 // CheckHeader 分析并检测消息头
 func CheckHeader(buf []byte) (message.MessageI, error) {
 	msg := Message{}

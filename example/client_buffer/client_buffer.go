@@ -37,8 +37,9 @@ func main() {
 	var conns []net.Conn
 	var buffer = message.NewBuffer(message2.CheckHeader)
 	var msg = message2.Message{}
-	buffer.OnMessage(func(msg message.MessageI) {
-		fmt.Println("recv msg : ", string(msg.GetData()))
+	buffer.OnMessage(func(m message.MessageI) {
+		msg := m.(*message2.Message)
+		fmt.Println("recv msg : ", string(msg.Data))
 	})
 	if *encrypt != "" {
 		enc, err = encrypt2.NewMethodInstance(*encrypt, encrypt2.MagicKey, encrypt2.MagicKey[:16])

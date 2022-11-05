@@ -38,7 +38,7 @@ type Connection struct {
 
 	isClient bool
 	connId   int64
-	locker   sync.Mutex
+	locker   sync.RWMutex
 	context  maps.Map
 	handler  Handler
 }
@@ -288,9 +288,17 @@ func (this *Connection) Close(reason string) error {
 	return nil
 }
 
+// IsClose 是否已断开
+func (this *Connection) IsClose() bool {
+
+	this.locker.RLocker()
+	defer this.locker.RUnlock()
+	return this.isClosed
+}
+
 // Write 下发消息
 func (this *Connection) Write(bytes []byte) (n int, err error) {
-	if this.isClosed {
+	if this.IsClose() {
 		return 0, errors.New("connection is close")
 	}
 	if this.options != nil && this.options.EncryptMethod != nil {
@@ -306,7 +314,7 @@ func (this *Connection) Write(bytes []byte) (n int, err error) {
 
 // SetBuffer 设置接受消息监听器[注意当设置监听器之后 handler OnMessage将失效]
 func (this *Connection) SetBuffer(buffer *message.Buffer) error {
-	if this.isClosed {
+	if this.IsClose() {
 		return errors.New("the connection is close")
 	}
 	// udp client 不存在接受消息 股不存在设置接受消息监听器

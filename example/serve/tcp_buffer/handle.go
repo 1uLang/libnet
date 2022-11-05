@@ -13,8 +13,9 @@ type conn struct {
 	buffer *message.Buffer
 }
 
-func (c *conn) onMessage(msg message.MessageI) {
-	fmt.Println("recv msg : ", string(msg.GetData()))
+func (c *conn) onMessage(m message.MessageI) {
+	msg := m.(*message2.Message)
+	fmt.Println("recv msg : ", string(msg.Data))
 	msg.SetData([]byte("recv msg"))
 	n, err := c.c.Write(msg.Marshal())
 	fmt.Println("send msg ", n, err)
