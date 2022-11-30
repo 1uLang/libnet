@@ -25,7 +25,7 @@ func NewClient(address string, handler Handler, opts ...options2.Option) (*Clien
 }
 func (c *Client) Write(bytes []byte) (int, error) {
 	if c.conn == nil {
-		return 0, fmt.Errorf("not  dial to server")
+		return 0, fmt.Errorf("not dial to server")
 	}
 	return c.conn.Write(bytes)
 }
@@ -34,7 +34,8 @@ func (c *Client) DialTCP() error {
 	if err != nil {
 		return err
 	}
-	newConnection(rawConn, c.handler, c.options, false, true).setupTCP()
+	c.conn = newConnection(rawConn, c.handler, c.options, false, true)
+	c.conn.setupTCP()
 	return nil
 }
 
@@ -49,7 +50,7 @@ func (c *Client) DialUDP() error {
 	if err != nil {
 		return err
 	}
-	newConnection(rawConn, c.handler, c.options, true, true).setupUDP()
+	c.conn = newConnection(rawConn, c.handler, c.options, true, true)
 	return nil
 }
 func (c *Client) DialTLS(cfg *tls.Config) error {
@@ -59,7 +60,8 @@ func (c *Client) DialTLS(cfg *tls.Config) error {
 	if err != nil {
 		return err
 	}
-	newConnection(rawConn, c.handler, c.options, false, true).setupTLS()
+	c.conn = newConnection(rawConn, c.handler, c.options, false, true)
+	c.conn.setupTLS()
 	return nil
 }
 func (c *Client) Close() error {

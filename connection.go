@@ -52,6 +52,7 @@ func newConnection(rawConn net.Conn, handler Handler, opts *options.Options, isU
 		handler:  handler,
 		worker:   workers.Get(),
 		context:  maps.Map{},
+		locker:   sync.RWMutex{},
 	}
 
 	atomic.AddInt64(&countConnections, 1)
@@ -103,7 +104,6 @@ func (this *Connection) setupUDP() {
 			this.handler.OnClose(this, "")
 		}
 	}
-
 }
 
 // TCP 建立
@@ -291,7 +291,7 @@ func (this *Connection) Close(reason string) error {
 // IsClose 是否已断开
 func (this *Connection) IsClose() bool {
 
-	this.locker.RLocker()
+	this.locker.RLock()
 	defer this.locker.RUnlock()
 	return this.isClosed
 }
