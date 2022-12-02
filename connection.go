@@ -41,6 +41,8 @@ type Connection struct {
 	locker   sync.RWMutex
 	context  maps.Map
 	handler  Handler
+
+	onClose func()
 }
 
 func newConnection(rawConn net.Conn, handler Handler, opts *options.Options, isUdp, isClient bool) *Connection {
@@ -50,7 +52,7 @@ func newConnection(rawConn net.Conn, handler Handler, opts *options.Options, isU
 		conn:     rawConn,
 		options:  opts,
 		handler:  handler,
-		worker:   workers.Get(),
+		worker:   workers.NewWorker(""),
 		context:  maps.Map{},
 		locker:   sync.RWMutex{},
 	}
@@ -276,6 +278,10 @@ func (this *Connection) Close(reason string) error {
 		atomic.AddInt64(&countConnections, -1)
 	}
 	this.locker.Unlock()
+	// 执行断开链接回调
+	if this.onClose != nil {
+		this.onClose()
+	}
 	// 关闭desc，需要在关闭conn之前
 	if this.desc != nil {
 		_ = poller.Stop(this.desc)
@@ -322,6 +328,15 @@ func (this *Connection) SetBuffer(buffer *message.Buffer) error {
 		return errors.New("udp client is not to be set ")
 	}
 	this.buffer = buffer
+	return nil
+}
+
+// 设置断开连接回调函数
+func (this *Connection) SetOnClose(onClose func()) error {
+	if this.IsClose() {
+		return errors.New("the connection is close")
+	}
+	this.onClose = onClose
 	return nil
 }
 
