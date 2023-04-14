@@ -72,7 +72,9 @@ func GetOptions(opts ...Option) *Options {
 	options := &Options{}
 
 	for _, o := range opts {
-		o.apply(options)
+		if o != nil {
+			o.apply(options)
+		}
 	}
 	return options
 }

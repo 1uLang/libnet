@@ -15,10 +15,8 @@ type conn struct {
 
 func (c *conn) onMessage(m message.MessageI) {
 	msg := m.(*message2.Message)
-	fmt.Println("recv msg : ", string(msg.Data))
 	msg.SetData([]byte("recv msg"))
-	n, err := c.c.Write(msg.Marshal())
-	fmt.Println("send msg ", n, err)
+	_, _ = c.c.Write(msg.Marshal())
 }
 
 // OnConnect 当TCP长连接建立成功是回调
@@ -31,7 +29,6 @@ func (Handle) OnConnect(c *libnet.Connection) {
 
 // OnMessage 当客户端有数据写入是回调
 func (Handle) OnMessage(c *libnet.Connection, bytes []byte) {
-	fmt.Println("recv new msg : ", string(bytes))
 	c.Write(bytes)
 }
 

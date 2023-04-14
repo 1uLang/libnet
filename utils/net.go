@@ -1,3 +1,5 @@
+//go:build !windows
+
 // 可以在 /usr/include/asm-generic/socket.h 中找到 SO_REUSEPORT 值
 
 package utils
@@ -44,4 +46,15 @@ func ListenReuseAddr(network string, addr string) (net.Listener, error) {
 		KeepAlive: 0,
 	}
 	return config.Listen(context.Background(), network, addr)
+}
+
+func SetLimit() {
+	var rLimit syscall.Rlimit
+	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rLimit); err != nil {
+		panic(err)
+	}
+	rLimit.Cur = rLimit.Max
+	if err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &rLimit); err != nil {
+		panic(err)
+	}
 }

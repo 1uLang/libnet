@@ -1,10 +1,9 @@
-//go:build windows
-
-// windows 无epoll  故需要区分
+//go:build !windows
 
 package libnet
 
 import (
+	"crypto/tls"
 	"errors"
 	"github.com/1uLang/libnet/message"
 	"github.com/1uLang/libnet/options"
@@ -13,7 +12,6 @@ import (
 	"github.com/1uLang/libnet/workers"
 	"github.com/mailru/easygo/netpoll"
 	log "github.com/sirupsen/logrus"
-	"io"
 	"net"
 	"strings"
 	"sync"
@@ -118,7 +116,6 @@ func (this *Connection) setupUDP() {
 
 // TCP 建立
 func (this *Connection) setupTCP() {
-
 	if this.IsClose() {
 		return
 	}
@@ -127,49 +124,72 @@ func (this *Connection) setupTCP() {
 		this.conn.SetReadDeadline(time.Now().Add(this.options.Timeout))
 	}
 	this.remoteAddr = this.conn.RemoteAddr().String()
-	// 读取数据
-	buf := bytePool.Get()
-	for {
-		n, err := this.conn.Read(buf)
-		if n > 0 {
-			// 设置超时
-			if this.options != nil && this.options.Timeout != 0 {
-				this.conn.SetReadDeadline(time.Now().Add(this.options.Timeout))
-			}
-			if this.buffer != nil || this.handler != nil {
-				if this.options != nil && this.options.EncryptMethod != nil {
-					decode, err := this.options.EncryptMethod.Decrypt(buf[:n])
-					if err != nil {
-						this.fail(err)
-					} else {
-						if this.buffer != nil {
-							this.buffer.Write(decode)
+	// conn
+	desc, err := netpoll.Handle(this.conn, netpoll.EventRead|netpoll.EventEdgeTriggered)
+	if err != nil {
+		this.fail(err)
+		return
+	}
+	this.desc = desc
+
+	syscallConn, err := this.conn.(*net.TCPConn).SyscallConn()
+	if err != nil {
+		this.fail(err)
+		return
+	}
+
+	err = poller.Start(desc, func(ev netpoll.Event) {
+		this.worker.Run(func() {
+			// 读取数据
+			buf := bytePool.Get()
+			for {
+				n, err := utils.ReadConn(syscallConn, buf)
+				if err != nil && strings.Contains(err.Error(), "timeout") {
+					bytePool.Put(buf)
+					// 处理读取超时
+					_ = this.Close("timeout")
+					return
+				}
+				if n > 0 {
+					// 设置超时
+					if this.options != nil && this.options.Timeout != 0 {
+						this.conn.SetReadDeadline(time.Now().Add(this.options.Timeout))
+					}
+					if this.buffer != nil || this.handler != nil {
+						if this.options != nil && this.options.EncryptMethod != nil {
+							decode, err := this.options.EncryptMethod.Decrypt(buf[:n])
+							if err != nil {
+								this.fail(err)
+							} else {
+								if this.buffer != nil {
+									this.buffer.Write(decode)
+								} else {
+									this.handler.OnMessage(this, decode)
+								}
+							}
 						} else {
-							this.handler.OnMessage(this, decode)
+							if this.buffer != nil {
+								this.buffer.Write(buf[:n])
+							} else {
+								this.handler.OnMessage(this, buf[:n])
+							}
 						}
 					}
 				} else {
-					if this.buffer != nil {
-						this.buffer.Write(buf[:n])
-					} else {
-						this.handler.OnMessage(this, buf[:n])
-					}
+					break
 				}
 			}
-		}
-		if err != nil {
 			bytePool.Put(buf)
-			if io.EOF == err {
-				// 连接断开
-				_ = this.Close("client close")
+			// 处理连接断开事件
+			if ev&netpoll.EventReadHup != 0 {
+				_ = this.Close("client hup")
 				return
 			}
-			if strings.Contains(err.Error(), "timeout") {
-				// 读取超时
-				_ = this.Close("timeout")
-				return
-			}
-		}
+		})
+	})
+	if err != nil {
+		this.fail(err)
+		return
 	}
 }
 
@@ -185,49 +205,69 @@ func (this *Connection) setupTLS() {
 	}
 
 	this.remoteAddr = this.conn.RemoteAddr().String()
-	// 读取数据
-	buf := bytePool.Get()
-	for {
-		n, err := this.conn.Read(buf)
-		if n > 0 {
-			// 设置超时
-			if this.options != nil && this.options.Timeout != 0 {
-				this.conn.SetReadDeadline(time.Now().Add(this.options.Timeout))
-			}
-			if this.buffer != nil || this.handler != nil {
-				if this.options != nil && this.options.EncryptMethod != nil {
-					decode, err := this.options.EncryptMethod.Decrypt(buf[:n])
-					if err != nil {
-						this.fail(err)
-					} else {
-						if this.buffer != nil {
-							this.buffer.Write(decode)
-						} else {
-							this.handler.OnMessage(this, decode)
-						}
-					}
-				} else {
-					if this.buffer != nil {
-						this.buffer.Write(buf[:n])
-					} else {
-						this.handler.OnMessage(this, buf[:n])
-					}
-				}
-			}
-		}
-		if err != nil {
-			bytePool.Put(buf)
-			if io.EOF == err {
-				// 连接断开
-				_ = this.Close("client close")
-				return
-			}
-			if strings.Contains(err.Error(), "timeout") {
-				// 读取超时
+
+	tlsConn, _ := this.conn.(*tls.Conn)
+	conn, _ := tlsConn.NetConn().(*net.TCPConn)
+	// conn
+	desc, err := netpoll.Handle(conn, netpoll.EventRead|netpoll.EventEdgeTriggered)
+	if err != nil {
+		this.fail(err)
+		return
+	}
+	this.desc = desc
+	err = poller.Start(desc, func(ev netpoll.Event) {
+		this.worker.Run(func() {
+			// 读取数据
+			buf := bytePool.Get()
+			//for {
+			n, err := tlsConn.Read(buf)
+			if err != nil && strings.Contains(err.Error(), "timeout") {
+				bytePool.Put(buf)
+				// 处理读取超时
 				_ = this.Close("timeout")
 				return
 			}
-		}
+			if n > 0 {
+				// 设置超时
+				if this.options != nil && this.options.Timeout != 0 {
+					this.conn.SetReadDeadline(time.Now().Add(this.options.Timeout))
+				}
+				if this.buffer != nil || this.handler != nil {
+					if this.options != nil && this.options.EncryptMethod != nil {
+						decode, err := this.options.EncryptMethod.Decrypt(buf[:n])
+						if err != nil {
+							this.fail(err)
+						} else {
+							if this.buffer != nil {
+								this.buffer.Write(decode)
+							} else {
+								this.handler.OnMessage(this, decode)
+							}
+						}
+					} else {
+						if this.buffer != nil {
+							this.buffer.Write(buf[:n])
+						} else {
+							this.handler.OnMessage(this, buf[:n])
+						}
+					}
+				}
+			}
+			//	else {
+			//		break
+			//	}
+			//}
+			bytePool.Put(buf)
+			// 处理连接断开事件
+			if ev&netpoll.EventReadHup != 0 {
+				_ = this.Close("client hup")
+				return
+			}
+		})
+	})
+	if err != nil {
+		this.fail(err)
+		return
 	}
 }
 
@@ -243,9 +283,10 @@ func (this *Connection) Close(reason string) error {
 		return nil
 	}
 	defer func() {
-		this.worker.Close()
+		if this.worker != nil {
+			this.worker.Close()
+		}
 	}()
-
 	this.locker.Lock()
 	if !this.isClosed {
 		if this.handler != nil {
@@ -273,7 +314,6 @@ func (this *Connection) Close(reason string) error {
 
 // IsClose 是否已断开
 func (this *Connection) IsClose() bool {
-
 	this.locker.RLock()
 	defer this.locker.RUnlock()
 	return this.isClosed
@@ -281,7 +321,7 @@ func (this *Connection) IsClose() bool {
 
 // Write 下发消息
 func (this *Connection) Write(bytes []byte) (n int, err error) {
-	if this.IsClose() {
+	if this.IsClose() || this.conn == nil {
 		return 0, nil
 	}
 	if this.options != nil && this.options.EncryptMethod != nil {
@@ -311,7 +351,7 @@ func (this *Connection) SetBuffer(buffer *message.Buffer) error {
 // 设置断开连接回调函数
 func (this *Connection) SetOnClose(onClose func()) error {
 	if this.IsClose() {
-		return errors.New("the connection is close")
+		return nil
 	}
 	this.onClose = onClose
 	return nil
@@ -319,8 +359,7 @@ func (this *Connection) SetOnClose(onClose func()) error {
 
 // RemoteAddr 远端地址
 func (this *Connection) RemoteAddr() string {
-
-	if this.remoteAddr == "" && !this.IsClose() {
+	if this.remoteAddr == "" && this.conn != nil {
 		return this.conn.RemoteAddr().String()
 	}
 	return this.remoteAddr

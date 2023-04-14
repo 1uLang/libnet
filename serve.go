@@ -3,9 +3,9 @@ package libnet
 import (
 	"crypto/tls"
 	"github.com/1uLang/libnet/options"
+	"github.com/1uLang/libnet/utils"
 	log "github.com/sirupsen/logrus"
 	"net"
-	"syscall"
 )
 
 type Serve struct {
@@ -17,7 +17,7 @@ type Serve struct {
 }
 
 func NewServe(address string, handler Handler, opts ...options.Option) *Serve {
-	setLimit()
+	utils.SetLimit()
 	return &Serve{
 		options: options.GetOptions(opts...),
 		address: address,
@@ -74,15 +74,5 @@ func (s *Serve) RunTLS(cfg *tls.Config) error {
 			log.Error("new tls client connection error ", err)
 		}
 		newConnection(conn.(*tls.Conn), s.handler, s.options, false, false).setupTLS()
-	}
-}
-func setLimit() {
-	var rLimit syscall.Rlimit
-	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rLimit); err != nil {
-		panic(err)
-	}
-	rLimit.Cur = rLimit.Max
-	if err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &rLimit); err != nil {
-		panic(err)
 	}
 }

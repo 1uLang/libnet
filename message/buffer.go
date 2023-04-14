@@ -27,6 +27,7 @@ type Buffer struct {
 func NewBuffer(parserFunc func([]byte) (MessageI, error)) *Buffer {
 	return &Buffer{
 		parserFunc: parserFunc,
+		msgId:      1,
 	}
 }
 
@@ -82,7 +83,8 @@ func (this *Buffer) Write(rawBuf []byte) {
 			if this.onMessage != nil {
 				this.onMessage(msg)
 				// 由于onMessage可能会改变buffer，所以这里需要做判断
-				if len(this.buf) < int(msg.HeaderLength()) {
+				if len(this.buf) == int(msg.HeaderLength()) {
+					this.buf = nil
 					return
 				}
 			}

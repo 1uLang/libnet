@@ -113,7 +113,7 @@ func (this *Message) GetLength() uint32 {
 // CheckHeader 分析并检测消息头
 func CheckHeader(buf []byte) (message.MessageI, error) {
 	msg := Message{}
-	if buf == nil && len(buf) == 0 {
+	if buf == nil || len(buf) == 0 {
 		return nil, ErrBufferInvalidIsNil
 	}
 	msg.Version = buf[0]

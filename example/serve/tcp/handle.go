@@ -15,7 +15,6 @@ func (Handle) OnConnect(c *libnet.Connection) {
 
 // OnMessage 当客户端有数据写入是回调
 func (Handle) OnMessage(c *libnet.Connection, bytes []byte) {
-	fmt.Println("recv new msg : ", string(bytes))
 	c.Write(bytes)
 }
 

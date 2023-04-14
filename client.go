@@ -4,7 +4,9 @@ import (
 	"crypto/tls"
 	"fmt"
 	options2 "github.com/1uLang/libnet/options"
+	"github.com/1uLang/libnet/utils"
 	"net"
+	"time"
 )
 
 type Client struct {
@@ -16,7 +18,7 @@ type Client struct {
 
 func NewClient(address string, handler Handler, opts ...options2.Option) (*Client, error) {
 	options := options2.GetOptions(opts...)
-	setLimit()
+	utils.SetLimit()
 	return &Client{
 		options: options,
 		address: address,
@@ -30,33 +32,43 @@ func (c *Client) Write(bytes []byte) (int, error) {
 	return c.conn.Write(bytes)
 }
 func (c *Client) DialTCP() error {
-	rawConn, err := net.Dial("tcp", c.address)
+
+	timeout := c.options.Timeout
+	if c.options.Timeout == 0 { // 默认3秒
+		timeout = 3 * time.Second
+	}
+	rawConn, err := net.DialTimeout("tcp", c.address, timeout)
 	if err != nil {
 		return err
 	}
+	//rawConn.(*net.TCPConn).SetLinger(0)
 	c.conn = newConnection(rawConn, c.handler, c.options, false, true)
 	c.conn.setupTCP()
 	return nil
 }
 
 func (c *Client) DialUDP() error {
-	var rawConn net.Conn
-	var err error
-	if c.options != nil && c.options.Timeout != 0 {
-		rawConn, err = net.DialTimeout("udp", c.address, c.options.Timeout)
-	} else {
-		rawConn, err = net.Dial("udp", c.address)
+
+	timeout := c.options.Timeout
+	if c.options.Timeout == 0 { // 默认3秒
+		timeout = 3 * time.Second
 	}
+	rawConn, err := net.DialTimeout("udp", c.address, timeout)
 	if err != nil {
 		return err
 	}
+	//err = rawConn.(*net.UDPConn).SetWriteBuffer(4 * 1024 * 1024)
 	c.conn = newConnection(rawConn, c.handler, c.options, true, true)
 	return nil
 }
 func (c *Client) DialTLS(cfg *tls.Config) error {
 	var rawConn net.Conn
 	var err error
-	rawConn, err = tls.Dial("tcp", c.address, cfg)
+	timeout := c.options.Timeout
+	if c.options.Timeout == 0 { // 默认3秒
+		timeout = 3 * time.Second
+	}
+	rawConn, err = tls.DialWithDialer(&net.Dialer{Timeout: timeout}, "tcp", c.address, cfg)
 	if err != nil {
 		return err
 	}
