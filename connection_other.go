@@ -1,10 +1,11 @@
-//go:build !windows
+//go:build !windows && !android
 
 package libnet
 
 import (
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"github.com/1uLang/libnet/message"
 	"github.com/1uLang/libnet/options"
 	"github.com/1uLang/libnet/utils"
@@ -13,6 +14,9 @@ import (
 	"github.com/mailru/easygo/netpoll"
 	log "github.com/sirupsen/logrus"
 	"net"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -127,14 +131,16 @@ func (this *Connection) setupTCP() {
 	// conn
 	desc, err := netpoll.Handle(this.conn, netpoll.EventRead|netpoll.EventEdgeTriggered)
 	if err != nil {
-		this.fail(err)
+		this.fail(errors.New("tls net poll handle " + err.Error()))
+		_ = this.Close(err.Error())
 		return
 	}
 	this.desc = desc
 
 	syscallConn, err := this.conn.(*net.TCPConn).SyscallConn()
 	if err != nil {
-		this.fail(err)
+		this.fail(errors.New("tcp SyscallConn " + err.Error()))
+		_ = this.Close(err.Error())
 		return
 	}
 
@@ -188,7 +194,7 @@ func (this *Connection) setupTCP() {
 		})
 	})
 	if err != nil {
-		this.fail(err)
+		this.fail(errors.New("tcp poller " + err.Error()))
 		return
 	}
 }
@@ -211,15 +217,16 @@ func (this *Connection) setupTLS() {
 	// conn
 	desc, err := netpoll.Handle(conn, netpoll.EventRead|netpoll.EventEdgeTriggered)
 	if err != nil {
-		this.fail(err)
+		this.fail(errors.New("tls net poll handle " + err.Error()))
+		_ = this.Close(err.Error())
 		return
 	}
 	this.desc = desc
+
 	err = poller.Start(desc, func(ev netpoll.Event) {
 		this.worker.Run(func() {
 			// 读取数据
 			buf := bytePool.Get()
-			//for {
 			n, err := tlsConn.Read(buf)
 			if err != nil && strings.Contains(err.Error(), "timeout") {
 				bytePool.Put(buf)
@@ -253,10 +260,6 @@ func (this *Connection) setupTLS() {
 					}
 				}
 			}
-			//	else {
-			//		break
-			//	}
-			//}
 			bytePool.Put(buf)
 			// 处理连接断开事件
 			if ev&netpoll.EventReadHup != 0 {
@@ -266,14 +269,45 @@ func (this *Connection) setupTLS() {
 		})
 	})
 	if err != nil {
-		this.fail(err)
+		this.fail(errors.New(this.remoteAddr + " tls poller " + err.Error()))
 		return
 	}
 }
 
 // 异常
 func (this *Connection) fail(err error) {
-	log.Fatal(err)
+	errorString := err.Error()
+
+	// 调用stack
+	_, currentFilename, _, currentOk := runtime.Caller(0)
+	if currentOk {
+		for i := 1; i < 32; i++ {
+			_, filename, lineNo, ok := runtime.Caller(i)
+			if !ok {
+				break
+			}
+
+			if filename == currentFilename {
+				continue
+			}
+
+			goPath := os.Getenv("GOPATH")
+			if len(goPath) > 0 {
+				absGoPath, err := filepath.Abs(goPath)
+				if err == nil {
+					filename = strings.TrimPrefix(filename, absGoPath)[1:]
+				}
+			} else if strings.Contains(filename, "src") {
+				filename = filename[strings.Index(filename, "src"):]
+			}
+
+			errorString += "\n\t\t" + string(filename) + ":" + fmt.Sprintf("%d", lineNo)
+
+			break
+		}
+	}
+
+	log.Fatal(errorString)
 }
 
 // Close 主动断开连接
@@ -305,11 +339,7 @@ func (this *Connection) Close(reason string) error {
 		_ = poller.Stop(this.desc)
 		_ = this.desc.Close()
 	}
-	err := this.conn.Close()
-	if err != nil {
-		return err
-	}
-	return nil
+	return this.conn.Close()
 }
 
 // IsClose 是否已断开
@@ -336,16 +366,13 @@ func (this *Connection) Write(bytes []byte) (n int, err error) {
 }
 
 // SetBuffer 设置接受消息监听器[注意当设置监听器之后 handler OnMessage将失效]
-func (this *Connection) SetBuffer(buffer *message.Buffer) error {
-	if this.IsClose() {
-		return nil
-	}
+func (this *Connection) SetBuffer(buffer *message.Buffer) {
 	// udp client 不存在接受消息 股不存在设置接受消息监听器
-	if this.isUdp && this.isClient {
-		return errors.New("udp client is not to be set ")
+	if this.IsClose() || this.isUdp && this.isClient {
+		return
 	}
 	this.buffer = buffer
-	return nil
+	return
 }
 
 // 设置断开连接回调函数

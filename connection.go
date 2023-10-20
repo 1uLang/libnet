@@ -1,4 +1,4 @@
-//go:build windows
+//go:build windows || android
 
 // windows 无epoll  故需要区分
 
@@ -10,8 +10,6 @@ import (
 	"github.com/1uLang/libnet/options"
 	"github.com/1uLang/libnet/utils"
 	"github.com/1uLang/libnet/utils/maps"
-	"github.com/1uLang/libnet/workers"
-	"github.com/mailru/easygo/netpoll"
 	log "github.com/sirupsen/logrus"
 	"io"
 	"net"
@@ -22,7 +20,6 @@ import (
 )
 
 var (
-	poller, _        = netpoll.New(nil)
 	bytePool         = utils.NewBytePool(10_000, 65536)
 	connId           = int64(0)
 	countConnections = int64(0)
@@ -32,8 +29,6 @@ var (
 
 type Connection struct {
 	conn       net.Conn
-	desc       *netpoll.Desc
-	worker     *workers.Worker
 	buffer     *message.Buffer
 	options    *options.Options
 	isUdp      bool
@@ -56,7 +51,6 @@ func newConnection(rawConn net.Conn, handler Handler, opts *options.Options, isU
 		conn:     rawConn,
 		options:  opts,
 		handler:  handler,
-		worker:   workers.NewWorker(""),
 		context:  maps.Map{},
 		locker:   sync.RWMutex{},
 	}
@@ -242,9 +236,6 @@ func (this *Connection) Close(reason string) error {
 	if this.IsClose() {
 		return nil
 	}
-	defer func() {
-		this.worker.Close()
-	}()
 
 	this.locker.Lock()
 	if !this.isClosed {
@@ -258,11 +249,6 @@ func (this *Connection) Close(reason string) error {
 	// 执行断开链接回调
 	if this.onClose != nil {
 		this.onClose()
-	}
-	// 关闭desc，需要在关闭conn之前
-	if this.desc != nil {
-		_ = poller.Stop(this.desc)
-		_ = this.desc.Close()
 	}
 	err := this.conn.Close()
 	if err != nil {

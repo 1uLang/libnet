@@ -32,11 +32,9 @@ func (s *Serve) RunUDP() error {
 		return err
 	}
 	conn, err := net.ListenUDP("udp", udpAddr)
-
 	if err != nil {
 		return err
 	}
-
 	newConnection(conn, s.handler, s.options, true, false).setupUDP()
 	return nil
 }
@@ -52,8 +50,9 @@ func (s *Serve) RunTCP() error {
 		conn, err := ln.Accept()
 		if err != nil {
 			log.Error("new tcp client connection error ", err)
+			continue
 		}
-		newConnection(conn, s.handler, s.options, false, false).setupTCP()
+		go newConnection(conn, s.handler, s.options, false, false).setupTCP()
 	}
 }
 
@@ -72,7 +71,8 @@ func (s *Serve) RunTLS(cfg *tls.Config) error {
 		conn, err := tlsListener.Accept()
 		if err != nil {
 			log.Error("new tls client connection error ", err)
+			continue
 		}
-		newConnection(conn.(*tls.Conn), s.handler, s.options, false, false).setupTLS()
+		go newConnection(conn.(*tls.Conn), s.handler, s.options, false, false).setupTLS()
 	}
 }
