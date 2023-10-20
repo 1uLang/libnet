@@ -14,6 +14,10 @@ type Serve struct {
 	options *options.Options
 	// 处理消息回调接口
 	handler Handler
+	svr     server
+}
+type server interface {
+	Close() error
 }
 
 func NewServe(address string, handler Handler, opts ...options.Option) *Serve {
@@ -35,6 +39,7 @@ func (s *Serve) RunUDP() error {
 	if err != nil {
 		return err
 	}
+	s.svr = conn
 	newConnection(conn, s.handler, s.options, true, false).setupUDP()
 	return nil
 }
@@ -45,6 +50,7 @@ func (s *Serve) RunTCP() error {
 	if err != nil {
 		return err
 	}
+	s.svr = ln
 	defer ln.Close()
 	for {
 		conn, err := ln.Accept()
@@ -64,6 +70,7 @@ func (s *Serve) RunTLS(cfg *tls.Config) error {
 	if err != nil {
 		return err
 	}
+	s.svr = ln
 	defer ln.Close()
 	tlsListener := tls.NewListener(ln, cfg)
 	defer tlsListener.Close()
@@ -75,4 +82,7 @@ func (s *Serve) RunTLS(cfg *tls.Config) error {
 		}
 		go newConnection(conn.(*tls.Conn), s.handler, s.options, false, false).setupTLS()
 	}
+}
+func (s *Serve) Close() error {
+	return s.Close()
 }
